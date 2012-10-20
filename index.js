@@ -4,6 +4,8 @@
 var trimesh = require('trimesh');
 var MeshLife = require('./meshlife.js').MeshLife;
 var bunny = require('meshdata').bunny;
+var loop_subdivide = require('./loop_subdivision.js').loop_subdivide;
+
 
 //Flattens an array
 function flatten(arr) {
@@ -50,7 +52,11 @@ function rebuild() {
   var mesh = bunny;
   
   //TODO: Apply subdivisions here
-  var subdiv_count = parseInt($("#ctrl_Suddivs").val());
+  var subdiv_count = parseInt($("#ctrl_Subdivs").val());
+  for(var i=0; i<subdiv_count; ++i) {
+    mesh = loop_subdivide(mesh);
+  }
+  
 
   //Create simulation
   simulation = new MeshLife({
