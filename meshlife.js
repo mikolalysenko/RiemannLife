@@ -138,8 +138,8 @@ function MeshLife(params) {
     params = {};
   }
   
-  this.positions    = params.positions;
-  this.faces        = params.faces;
+  this.positions    = params.positions || [];
+  this.faces        = params.faces || [];
   this.vertex_count = this.positions.length;
   this.stars        = params.stars || trimesh.vertex_stars({
                               vertex_count: this.vertex_count,
@@ -160,16 +160,18 @@ function MeshLife(params) {
                     "wi*" + this.life_range[1] + "+w*" + this.death_range[1],
                     this.alpha_n) + ";" 
     ].join("\n");
-
-  //console.log(prog_string);
-  
   this.action = new Function("n", "m", prog_string);
   
   //Build stiffness matrix
-  var K = stiffness_matrix(this);
-  this.K_inner      = K.K_inner;
-  this.K_outer      = K.K_outer;
-  
+  if(params.K_inner && params.K_outer) {
+    this.K_inner      = params.K_inner;
+    this.K_outer      = params.K_outer;
+  } else {
+    var K = stiffness_matrix(this);
+    this.K_inner      = K.K_inner;
+    this.K_outer      = K.K_outer;
+  }
+    
   //Allocate state buffers
   this.state        = new Float32Array(this.vertex_count);
   this.next_state   = new Float32Array(this.vertex_count);

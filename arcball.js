@@ -71,6 +71,7 @@ function qnormalize(q) {
 function ArcballCamera() {
   this.rotation     = [1.0, 0.0, 0.0, 0.0];
   this.translation  = [0.0, 0.0, 0.0];
+  this.scale        = [1.0, 1.0, 1.0];
   
   this.z_plane      = 0.5;
   this.pan_speed    = 20.0;

@@ -3,11 +3,24 @@
 // License: BSD
 var trimesh = require('trimesh');
 var MeshLife = require('./meshlife.js').MeshLife;
-var bunny = require('meshdata').bunny;
+var meshdata = require('meshdata');
 var loop_subdivide = require('./loop_subdivision.js').loop_subdivide;
 var ArcballCamera = require('./arcball.js').ArcballCamera;
 
 
+//Context and mesh shader variables
+var context;
+var meshShader;
+var simulation;
+var paused = false;
+var camera = new ArcballCamera();
+var old_params = { mesh: "", inner_radius: 0, outer_radius: 0 };
+var meshSet = {
+  "Bunny": meshdata.bunny,
+  "Teapot": meshdata.teapot,
+  "Cube": trimesh.cube_mesh(10, [10,10,10]),
+  "Grid": trimesh.grid_mesh(10, 10)
+};
 
 //Flattens an array
 function flatten(arr) {
@@ -33,13 +46,26 @@ var nextFrame = (function(){
               };
     })();
     
-
-//Context and mesh shader variables
-var context, meshShader, simulation, paused = false, camera = new ArcballCamera();
-
+//Retrieves parameters
+function getParams() {
+  return {
+    mesh:         $("#ctrl_Mesh").val(),
+    subdiv_count: parseInt($("#ctrl_Subdivs").val()),
+    outer_radius: parseFloat($("#ctrl_OuterRadius").val()),
+    inner_radius: parseFloat($("#ctrl_InnerRadius").val()),
+    alpha_n:      parseFloat($("#ctrl_AlphaN").val()),
+    alpha_m:      parseFloat($("#ctrl_AlphaM").val()),
+    life_range:   [ parseFloat($("#ctrl_LiveLo").val()), parseFloat($("#ctrl_LiveHi").val()) ],
+    death_range:  [ parseFloat($("#ctrl_DeadLo").val()), parseFloat($("#ctrl_DeadHi").val()) ],
+    initial_sites:  parseInt($("#ctrl_Splats").val())
+  }
+}
 
 //Initialize game of life
 function reset() {
+  for(var i=0; i<simulation.vertex_count; ++i) {
+    simulation.state[i] = 0.0;
+  }
   var splat_count = parseInt($("#ctrl_Splats").val());
   for(var i=0; i<splat_count; ++i) {
     simulation.splat(Math.floor(Math.random() * simulation.vertex_count));
@@ -49,92 +75,110 @@ function reset() {
 //Rebuilds the solver/stiffness matrix
 function rebuild() {
 
+  var params = getParams();
 
-  //TODO: Get mesh based on value of drop down
-  var mesh = bunny;
+  if(params.mesh !== old_params.mesh ||
+     params.inner_radius !== old_params.inner_radius ||
+     params.outer_radius !== old_params.outer_radius ||
+     params.subdiv_count !== old_params.subdiv_count) {
+
+    //TODO: Get mesh based on value of drop down
+    var mesh = meshSet[params.mesh];
+    
+    //Apply subdivisions
+    for(var i=0; i<params.subdiv_count; ++i) {
+      mesh = loop_subdivide(mesh);
+    }
+    
+    params.positions = mesh.positions;
+    params.faces = mesh.faces;
+
+    //Create simulation
+    simulation = new MeshLife(params);
+    
+    //Save parameters
+    params.stars   = simulation.stars;
+    params.K_inner = simulation.K_inner;
+    params.K_outer = simulation.K_outer;
+
+    params.normals = trimesh.vertex_normals({
+      positions: mesh.positions,
+      faces:     mesh.faces,
+      stars:     simulation.stars
+    });
+    
+    //Release previous shader if in use
+    if(meshShader) {
+      meshShader.dispose();
+    }
+    
+    //Create mesh shader
+    var meshShaderInfo = {    
+      vertexShader: [
+        "uniform     mat4     transform;",
+        "uniform     mat4     cameraInverse;",
+        "uniform     mat4     cameraProjection;",
+        
+        "attribute  vec3      position;",
+        "attribute  vec3      normal;",
+        "attribute  float     state;",
+        
+        "varying    float     intensity;",
+        "varying    vec3      f_normal;",
+        
+        "void main(void) {",
+          "gl_Position = cameraProjection * cameraInverse * transform * vec4( 0.2*normal*state + position, 1.0 );",
+          "intensity = state;",
+          "f_normal = normal;",
+        "}"
+      ].join("\n"),
+      fragmentShader: [
+        "#ifdef GL_ES",
+          "precision highp float;",
+        "#endif",    
+
+        "varying float intensity;",
+        "varying vec3  f_normal;",
+        
+        "void main() {",
+          "float light = 0.3 * dot(normalize(f_normal), vec3(0, 1, 0)) + 0.5;",
+          "gl_FragColor = vec4(vec3(light,light,light) + 0.5 * vec3(intensity*intensity, intensity-0.4, 0), 1);",
+        "}"
+      ].join("\n"),
+      data: {
+        transform:        new GLOW.Matrix4(),
+        cameraInverse:    GLOW.defaultCamera.inverse,
+        cameraProjection: GLOW.defaultCamera.projection,
+        position:         new Float32Array(flatten(simulation.positions)),
+        normal:           new Float32Array(flatten(params.normals)),
+        state:            simulation.state
+      },
+      interleave: {
+        state: false
+      },
+      indices: new Uint16Array(flatten(simulation.faces)),
+      primitive: GL.TRIANGLES
+    };
+
+    meshShader = new GLOW.Shader(meshShaderInfo);
+    
+  } else {
   
-  //TODO: Apply subdivisions here
-  var subdiv_count = parseInt($("#ctrl_Subdivs").val());
-  for(var i=0; i<subdiv_count; ++i) {
-    mesh = loop_subdivide(mesh);
+    params.positions  = old_params.positions;
+    params.faces      = old_params.faces;
+    params.normals    = old_params.normals;
+    params.stars      = old_params.stars;
+    params.K_inner    = old_params.K_inner;
+    params.K_outer    = old_params.K_outer;
+    
+    simulation        = new Simulation(params);
   }
   
-
-  //Create simulation
-  simulation = new MeshLife({
-    positions:    mesh.positions,
-    faces:        mesh.faces,
-    outer_radius: parseFloat($("#ctrl_OuterRadius").val()),
-    inner_radius: parseFloat($("#ctrl_InnerRadius").val()),
-    alpha_n:      parseFloat($("#ctrl_AlphaN").val()),
-    alpha_m:      parseFloat($("#ctrl_AlphaM").val()),
-    life_range:   [ parseFloat($("#ctrl_LiveLo").val()), parseFloat($("#ctrl_LiveHi").val()) ],
-    death_range:  [ parseFloat($("#ctrl_DeadLo").val()), parseFloat($("#ctrl_DeadHi").val()) ]
-  });
-
+  //Save parameters
+  old_params = params;
+  
   //Reset simulation
-  reset();  
-  
-  //Release previous shader if in use
-  if(meshShader) {
-    meshShader.dispose();
-  }
-  
-  var normals = trimesh.vertex_normals({
-    positions: mesh.positions,
-    faces:     mesh.faces,
-    stars:     simulation.stars
-  });
-  
-  //Create mesh shader
-  var meshShaderInfo = {    
-    vertexShader: [
-      "uniform     mat4     transform;",
-      "uniform     mat4     cameraInverse;",
-      "uniform     mat4     cameraProjection;",
-      
-      "attribute  vec3      position;",
-      "attribute  vec3      normal;",
-      "attribute  float     state;",
-      
-      "varying    float     intensity;",
-      "varying    vec3      f_normal;",
-      
-      "void main(void) {",
-        "gl_Position = cameraProjection * cameraInverse * transform * vec4( 0.2*normal*state + position, 1.0 );",
-        "intensity = state;",
-        "f_normal = normal;",
-      "}"
-    ].join("\n"),
-    fragmentShader: [
-      "#ifdef GL_ES",
-        "precision highp float;",
-      "#endif",    
-
-      "varying float intensity;",
-      "varying vec3  f_normal;",
-      
-      "void main() {",
-        "float light = 0.3 * dot(normalize(f_normal), vec3(0, 1, 0)) + 0.5;",
-        "gl_FragColor = vec4(vec3(light,light,light) + 0.5 * vec3(intensity*intensity, intensity-0.4, 0), 1);",
-      "}"
-    ].join("\n"),
-    data: {
-      transform:        new GLOW.Matrix4(),
-      cameraInverse:    GLOW.defaultCamera.inverse,
-      cameraProjection: GLOW.defaultCamera.projection,
-      position:         new Float32Array(flatten(simulation.positions)),
-      normal:           new Float32Array(flatten(normals)),
-      state:            simulation.state
-    },
-    interleave: {
-      state: false
-    },
-    indices: new Uint16Array(flatten(simulation.faces)),
-    primitive: GL.TRIANGLES
-  };
-
-  meshShader = new GLOW.Shader(meshShaderInfo);
+  reset();
 }
 
 
@@ -186,9 +230,9 @@ function init() {
   $("#container").mousemove(function(e) {
     var container = $("#container");
     camera.update(e.pageX/container.width()-0.5, e.pageY/container.height()-0.5, {
-      rotate: e.which === 1,
-      pan:    e.which === 2,
-      zoom:   e.which === 3
+      rotate: !(e.ctrlKey || e.altKey) && (e.which === 1),
+      pan:    (e.ctrlKey && e.which !== 1) || (e.which === 2),
+      zoom:   (e.altKey && e.which !== 0) || e.which === 3
     });
   });
   
