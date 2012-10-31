@@ -15,10 +15,15 @@ var simulation;
 var paused = false;
 var camera = new ArcballCamera();
 var old_params = { mesh: "", inner_radius: 0, outer_radius: 0 };
+var buttons = {
+  rotate: false,
+  zoom: false,
+  pan: false
+};
 var meshSet = {
   "Bunny": meshdata.bunny,
   "Teapot": meshdata.teapot,
-  "Cube": trimesh.cube_mesh(10, [10,10,10]),
+  "Cube": trimesh.cube_mesh(10, [20,20,20]),
   "Grid": trimesh.grid_mesh(10, 10)
 };
 
@@ -171,7 +176,7 @@ function rebuild() {
     params.K_inner    = old_params.K_inner;
     params.K_outer    = old_params.K_outer;
     
-    simulation        = new Simulation(params);
+    simulation        = new MeshLife(params);
   }
   
   //Save parameters
@@ -230,11 +235,33 @@ function init() {
   $("#container").mousemove(function(e) {
     var container = $("#container");
     camera.update(e.pageX/container.width()-0.5, e.pageY/container.height()-0.5, {
-      rotate: !(e.ctrlKey || e.altKey) && (e.which === 1),
-      pan:    (e.ctrlKey && e.which !== 1) || (e.which === 2),
-      zoom:   (e.altKey && e.which !== 0) || e.which === 3
+      rotate: buttons.rotate || !(e.ctrlKey || e.altKey) && (e.which === 1),
+      pan:    buttons.pan || (e.ctrlKey && e.which !== 0) || (e.which === 2),
+      zoom:   buttons.zoom || (e.altKey && e.which !== 0) || e.which === 3
     });
   });
+  $(document).keypress(function(e) {
+    if(e.keyCode === 65) {
+      buttons.rotate = true;
+    }
+    if(e.keyCode === 83) {
+      buttons.pan = true;
+    }
+    if(e.keyCode === 68) {
+      buttons.zoom = true;
+    }
+  });
+  $(document).keyup(function(e) {
+    if(e.keyCode === 65) {
+      buttons.rotate = false;
+    }
+    if(e.keyCode === 83) {
+      buttons.pan = false;
+    }
+    if(e.keyCode === 68) {
+      buttons.zoom = false;
+    }
+  });  
   
   //Success
   render();

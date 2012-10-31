@@ -1,4 +1,5 @@
 var trimesh = require('trimesh');
+var EPSILON = 1e-6;
 
 /*
 function sigma1(x, a, alpha) {
@@ -32,6 +33,73 @@ function sigmoid_n(x, a, b, alpha_n) {
 function ColumnEntry(c, v) {
   this.column = c;
   this.value  = v;
+}
+
+//Compute weight associated to polygon
+var CLIPPED = new Array(5);
+var PQ = new Array(3);
+var PR = new Array(3);
+(function() {
+  for(var i=0; i<5; ++i) {
+    CLIPPED[i] = new Array(3);
+  }
+})();
+
+function weight(a, b, c, da, db, dc, r) {
+
+  var sa = da - r;
+  var sb = db - r;
+  var sc = dc - r;
+  
+  var poly = [a, b, c];
+  var weights = [sa, sb, sc];
+  var clip_count = 0;
+  for(var i=0; i<3; ++i) {
+    
+    var cw = weights[i];
+    var nw = weights[(i+1)%3];
+    
+    if(cw < 0) {
+      for(var j=0; j<3; ++j) {
+        CLIPPED[clip_count][j] = poly[i][j];
+      }
+      clip_count++;
+    }
+    
+    if((cw < 0 && nw > 0) || 
+       (cw > 0 && nw < 0)) {
+      var t = cw / (cw - nw);
+      var P = poly[i];
+      var Q = poly[(i+1)%3];
+      for(var j=0; j<3; ++j) {
+        CLIPPED[clip_count][j] = (1.0 - t) * P[j] + t * Q[j];
+      }
+      clip_count++;
+    }
+  }
+  
+  //Compute area of clipped polygon
+  var area2 = 0.0;
+  
+  for(var i=2; i<clip_count; ++i) {
+    var P = CLIPPED[0];
+    var Q = CLIPPED[(i-1)];
+    var R = CLIPPED[i];
+  
+    for(var l=0; l<3; ++l) {
+      PQ[l] = Q[l] - P[l];
+      PR[l] = R[l] - P[l];
+    }
+    
+    for(var l=0; l<3; ++l) {
+      var u = (l+1)%3;
+      var v = (l+2)%3;
+      var d = PQ[u] * PR[v] - PQ[v] * PR[u];
+      area2 += d * d;
+    }
+  }
+  
+  return Math.sqrt(area2);
 }
 
 //Computes the stiffness matrix for the system
@@ -71,42 +139,45 @@ function stiffness_matrix(args) {
     
     for(var j in distances) {
       var dist = distances[j];
-      if(dist > outer_radius) {
-        continue;
-      }
       
       //Compute vertex weight
-      var weight = 0.0;
+      var wi = 0.0;
+      var wo = 0.0;
       var star = stars[j];
       for(var k=0; k<star.length; ++k) {
         var tri = faces[star[k]];
-        var a = positions[tri[0]];
-        var b = positions[tri[1]];
-        var c = positions[tri[2]];
         
-        var ab = new Array(3);
-        var ac = new Array(3);
-        for(var l=0; l<3; ++l) {
-          ab[l] = b[l] - a[l];
-          ac[l] = c[l] - a[l];
+        //Get root vertex
+        var n = 0;
+        if(tri[1] === j) {
+          n = 1;
+        } else if(tri[2] === j) {
+          n = 2;
         }
+        var m = (n+1)%3;
+        var l = (n+2)%3;
         
-        var area2 = 0.0;
-        for(var l=0; l<3; ++l) {
-          var u = (l+1)%3;
-          var v = (l+2)%3;
-          var d = ab[u] * ac[v] - ab[v] * ac[u];
-          area2 += d * d;
-        }
-        weight += Math.sqrt(area2);
+        //Compute distances
+        var a = positions[tri[n]];
+        var b = positions[tri[m]];
+        var c = positions[tri[l]];
+        
+        var da = distances[tri[n]] ;
+        var db = tri[m] in distances ? distances[tri[m]] : 1e20;
+        var dc = tri[l] in distances ? distances[tri[l]] : 1e20; 
+        
+        //Compute weights
+        wi += weight(a, b, c, da, db, dc, inner_radius);
+        wo += weight(a, b, c, da, db, dc, outer_radius);
       }
       
-      if(dist < inner_radius) {
-        row_inner.push(new ColumnEntry(j, weight));
-        inner_weight += weight;
-      } else {
-        row_outer.push(new ColumnEntry(j, weight));
-        outer_weight += weight;
+      if(wi > EPSILON) {
+        row_inner.push(new ColumnEntry(j, wi));
+        inner_weight += wi;
+      }
+      if(wo - wi > EPSILON) {
+        row_outer.push(new ColumnEntry(j, wo - wi));
+        outer_weight += wo - wi;
       }
     }
   
