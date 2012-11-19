@@ -31,7 +31,7 @@ function sigmoid_n(x, a, b, alpha_n) {
 }
 
 function ColumnEntry(c, v) {
-  this.column = c;
+  this.column = parseInt(c);
   this.value  = v;
 }
 
@@ -45,29 +45,67 @@ var PR = new Array(3);
   }
 })();
 
+
+function perp(a, b) {
+  var s = 0.0;
+  for(var i=0; i<3; ++i) {
+    var u = (i+1)%3;
+    var v = (i+2)%3;
+    var d = a[u] * b[v] - a[v] * b[u];
+    s += d * d;
+  }
+  return Math.sqrt(s);
+}
+
+
+function area(a, b, c) {
+  var ab = new Array(3);
+  var ac = new Array(3);
+  for(var i=0; i<3; ++i) {
+    ab[i] = b[i] - a[i];
+    ac[i] = c[i] - a[i];
+  }
+  
+  return 0.5 * perp(ab, ac);
+}
+
+
 function weight(a, b, c, da, db, dc, r) {
 
-  var sa = da - r;
-  var sb = db - r;
-  var sc = dc - r;
+  //First clip polygon
+  var weights = [da - r, db - r, dc - r];
+  var signs = new Array(3);
+  var all_in = true;
+  var all_out = true;
+  for(var i=0; i<3; ++i) {
+    signs[i] = weights[i] < 0;
+    
+    all_out = all_out && !signs[i];
+    all_in  = all_in  &&  signs[i]
+  }
+  
+  //Check for early out
+  if(all_out) { return 0.0; }
+  if(all_in)  { return area(a, b, c) / 3.0; }
   
   var poly = [a, b, c];
-  var weights = [sa, sb, sc];
   var clip_count = 0;
   for(var i=0; i<3; ++i) {
     
-    var cw = weights[i];
-    var nw = weights[(i+1)%3];
+    var n = (i+1)%3;
+    var cs = signs[i];
+    var ns = signs[n];
     
-    if(cw < 0) {
+    if(cs) {
       for(var j=0; j<3; ++j) {
         CLIPPED[clip_count][j] = poly[i][j];
       }
       clip_count++;
     }
     
-    if((cw < 0 && nw > 0) || 
-       (cw > 0 && nw < 0)) {
+    if(cs !== ns) {
+      var cw = weights[i];
+      var nw = weights[n];
       var t = cw / (cw - nw);
       var P = poly[i];
       var Q = poly[(i+1)%3];
@@ -78,28 +116,24 @@ function weight(a, b, c, da, db, dc, r) {
     }
   }
   
-  //Compute area of clipped polygon
-  var area2 = 0.0;
-  
+  //Now compute weight
+  var w = 0.0;
+  var centroid = new Array(3);
   for(var i=2; i<clip_count; ++i) {
     var P = CLIPPED[0];
     var Q = CLIPPED[(i-1)];
     var R = CLIPPED[i];
+
+    for(var j=0; j<3; ++j) {
+      centroid[j] = (P[j] + Q[j] + R[j]) / 3.0;
+    }
   
-    for(var l=0; l<3; ++l) {
-      PQ[l] = Q[l] - P[l];
-      PR[l] = R[l] - P[l];
-    }
-    
-    for(var l=0; l<3; ++l) {
-      var u = (l+1)%3;
-      var v = (l+2)%3;
-      var d = PQ[u] * PR[v] - PQ[v] * PR[u];
-      area2 += d * d;
-    }
+    var alpha = area(P, Q, R);
+    w += alpha * area(centroid, b, c);
   }
-  
-  return Math.sqrt(area2);
+ 
+  //Finally, return scaled weight
+  return w / area(a, b, c);
 }
 
 //Computes the stiffness matrix for the system
@@ -120,7 +154,7 @@ function stiffness_matrix(args) {
     faces: faces,
     initial_vertex: 0,
     stars: stars,
-    max_distance: 1.01 * outer_radius
+    max_distance: 2.0 * outer_radius
   };
   
   var K_inner = new Array(positions.length);
@@ -202,6 +236,14 @@ function stiffness_matrix(args) {
 };
 
 
+var STEP_FUNC = {
+  "discrete": "f",
+  "smooth1": "g+dt*(2.0*f-1.0)",
+  "smooth2": "g+dt*(f-g)",
+  "smooth3": "m+dt*(2.0*f-1.0)",
+  "smooth4": "m+dt*(f-m)",
+};
+
 
 function MeshLife(params) {
 
@@ -221,17 +263,21 @@ function MeshLife(params) {
   this.alpha_m      = params.alpha_m || 0.147;
   this.life_range   = params.life_range || [ 0.278, 0.365 ];
   this.death_range  = params.death_range || [ 0.267, 0.445 ];
+  this.step_mode    = params.step_mode || "discrete";
+  this.delta_t      = params.delta_t || 0.01;
  
   //Compile action 
   var prog_string = [ 
       "var w=" + sigmoid("m", "0.5", this.alpha_m) + ";",
       "var wi=1.0-w;",
-      "return " + sigmoid_n("n", 
+      "var f = " + sigmoid_n("n", 
                     "wi*" + this.life_range[0] + "+w*" + this.death_range[0], 
                     "wi*" + this.life_range[1] + "+w*" + this.death_range[1],
-                    this.alpha_n) + ";" 
+                    this.alpha_n) + ";",
+      "var dt = " + this.delta_t + ";",
+      "return " + STEP_FUNC[this.step_mode] + ";"
     ].join("\n");
-  this.action = new Function("n", "m", prog_string);
+  this.action = new Function("n", "m", "g", prog_string);
   
   //Build stiffness matrix
   if(params.K_inner && params.K_outer) {
@@ -259,6 +305,7 @@ MeshLife.prototype.splat = function(vertex_num) {
   for(var i=0; i<row.length; ++i) {
     var entry = row[i];
     state[entry.column] = 1.0;
+    //state[entry.column] += entry.value / row[0].value;
   }
 }
 
@@ -289,7 +336,7 @@ MeshLife.prototype.step = function() {
       N += entry.value * state[entry.column];
     }
     
-    nstate[i] = S(N, M);
+    nstate[i] = S(N, M, state[i]);
   }
 
   //Swap buffers

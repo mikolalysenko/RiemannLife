@@ -62,7 +62,9 @@ function getParams() {
     alpha_m:      parseFloat($("#ctrl_AlphaM").val()),
     life_range:   [ parseFloat($("#ctrl_LiveLo").val()), parseFloat($("#ctrl_LiveHi").val()) ],
     death_range:  [ parseFloat($("#ctrl_DeadLo").val()), parseFloat($("#ctrl_DeadHi").val()) ],
-    initial_sites:  parseInt($("#ctrl_Splats").val())
+    initial_sites:  parseInt($("#ctrl_Splats").val()),
+    delta_t:      parseFloat($("#ctrl_Timestep").val()),
+    step_mode:    $("#ctrl_Timestep").val()
   }
 }
 
@@ -236,11 +238,11 @@ function init() {
     var container = $("#container");
     camera.update(e.pageX/container.width()-0.5, e.pageY/container.height()-0.5, {
       rotate: buttons.rotate || !(e.ctrlKey || e.altKey) && (e.which === 1),
-      pan:    buttons.pan || (e.ctrlKey && e.which !== 0) || (e.which === 2),
-      zoom:   buttons.zoom || (e.altKey && e.which !== 0) || e.which === 3
+      pan:    buttons.pan    || (e.altKey && e.which !== 0) || (e.which === 2),
+      zoom:   buttons.zoom   || (e.ctrlKey && e.which !== 0) || e.which === 3
     });
   });
-  $(document).keypress(function(e) {
+  $(document).keydown(function(e) {
     if(e.keyCode === 65) {
       buttons.rotate = true;
     }
