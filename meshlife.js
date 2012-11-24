@@ -1,27 +1,6 @@
 var trimesh = require('trimesh');
 var EPSILON = 1e-6;
 
-/*
-function sigma1(x, a, alpha) {
-  return 1.0 / (1.0 + exp(-4.0*(x-a)/alpha));
-}
-
-function sigma_n(x, a, b) {
-  return sigma1(x, a, ALPHA_N) * (1.0 - sigma1(x, b, ALPHA_N));
-}
-
-function sigma_m(x, y, m) {
-  var w = sigma1(m, 0.5, ALPHA_M);
-  return x*(1.0-w)+y*w;
-}
-
-function S(n, m) {
-  return sigma_n(n,
-          sigma_m(BIRTH_LO, DEATH_LO, m),
-          sigma_m(BIRTH_HI, DEATH_HI, m));
-}
-*/
-
 function sigmoid(x, a, b) {
   return "(1.0/(1.0+Math.exp(-4.0*((X)-(A))/(B))))".replace("X", x).replace("A", a).replace("B", b);
 }
@@ -147,6 +126,24 @@ function stiffness_matrix(args) {
   
   var compare_column = new Function("a", "b", "return a.column - b.column;");
   
+  //Compute length of longest edge in mesh
+  var max_edge_len = 0.0;
+  for(var i=0; i<faces.length; ++i) {
+    var face = faces[i];
+    
+    for(var j=0; j<face.length; ++j) {
+      var e0 = face[j];
+      var e1 = face[(j+1)%3];
+      var v0 = positions[e0];
+      var v1 = positions[e1];
+      var d = 0.0;
+      for(var k=0; k<3; ++k) {
+        d += Math.pow(v0[k]-v1[k], 2)
+      }
+      max_edge_len = Math.max(max_edge_len, d);
+    }
+  }
+  max_edge_len = Math.sqrt(max_edge_len);
   
   //Arguments to distance transform
   var distance_args = {
@@ -154,7 +151,7 @@ function stiffness_matrix(args) {
     faces: faces,
     initial_vertex: 0,
     stars: stars,
-    max_distance: 2.0 * outer_radius
+    max_distance: outer_radius + 2*max_edge_len
   };
   
   var K_inner = new Array(positions.length);
@@ -163,7 +160,7 @@ function stiffness_matrix(args) {
   for(var i=0; i<positions.length; ++i) {
   
     distance_args.initial_vertex = i;
-    var distances = trimesh.surface_distance_to_point(distance_args);
+    var distances = trimesh.geodesic_distance(distance_args);
     
     var row_inner = [];
     var row_outer = [];
@@ -197,8 +194,8 @@ function stiffness_matrix(args) {
         var c = positions[tri[l]];
         
         var da = distances[tri[n]] ;
-        var db = tri[m] in distances ? distances[tri[m]] : 1e20;
-        var dc = tri[l] in distances ? distances[tri[l]] : 1e20; 
+        var db = tri[m] in distances ? distances[tri[m]] : outer_radius+2*max_edge_len;
+        var dc = tri[l] in distances ? distances[tri[l]] : outer_radius+2*max_edge_len;
         
         //Compute weights
         wi += weight(a, b, c, da, db, dc, inner_radius);
@@ -238,10 +235,10 @@ function stiffness_matrix(args) {
 
 var STEP_FUNC = {
   "discrete": "f",
-  "smooth1": "g+dt*(2.0*f-1.0)",
-  "smooth2": "g+dt*(f-g)",
-  "smooth3": "m+dt*(2.0*f-1.0)",
-  "smooth4": "m+dt*(f-m)",
+  "smooth1": "Math.min(1.0,Math.max(0.0,g+dt*(2.0*f-1.0)))",
+  "smooth2": "Math.min(1.0,Math.max(0.0,g+dt*(f-g)))",
+  "smooth3": "Math.min(1.0,Math.max(0.0,m+dt*(2.0*f-1.0)))",
+  "smooth4": "Math.min(1.0,Math.max(0.0,m+dt*(f-m)))",
 };
 
 

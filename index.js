@@ -4,7 +4,7 @@
 var trimesh = require('trimesh');
 var MeshLife = require('./meshlife.js').MeshLife;
 var meshdata = require('meshdata');
-var loop_subdivide = require('./loop_subdivision.js').loop_subdivide;
+var loop_subdivide = trimesh.loop_subdivision;
 var ArcballCamera = require('./arcball.js').ArcballCamera;
 
 

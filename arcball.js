@@ -71,10 +71,11 @@ function qnormalize(q) {
 function ArcballCamera() {
   this.rotation     = [1.0, 0.0, 0.0, 0.0];
   this.translation  = [0.0, 0.0, 0.0];
+  this.zoom_factor  = 0.0;
   
   this.z_plane      = 0.5;
   this.pan_speed    = 20.0;
-  this.zoom_speed   = 20.0;
+  this.zoom_speed   = 1.0;
   
   this.last_x       = 0.0;
   this.last_y       = 0.0;
@@ -97,8 +98,10 @@ ArcballCamera.prototype.update = function(mx, my, flags) {
     var zoom_speed = flags.zoom ? this.zoom_speed : 0.0;
     
     for(var i=0; i<3; ++i) {
-      this.translation[i] += pan_speed * (dx * rmatrix[0][i] + dy * rmatrix[1][i]) + zoom_speed * dy * rmatrix[2][i];
+      this.translation[i] += pan_speed * (dx * rmatrix[0][i] + dy * rmatrix[1][i]);
     }
+    
+    this.zoom_factor += zoom_speed * dy;
   }
   this.last_x = mx;
   this.last_y = my;
@@ -109,13 +112,14 @@ ArcballCamera.prototype.update = function(mx, my, flags) {
 ArcballCamera.prototype.matrix = function() {
   var rmatrix = qmatrix(this.rotation);
   var result = new Array(4);
+  var scale = Math.exp(this.zoom_factor);
   for(var i=0; i<4; ++i) {
     if(i < 3) {
       result[i] = new Array(4);
       result[i][3] = 0.0;
       for(var j=0; j<3; ++j) {
-        result[i][j] = rmatrix[i][j];   
-        result[i][3] += rmatrix[i][j] * this.translation[j];
+        result[i][j] = rmatrix[i][j] * scale;
+        result[i][3] += rmatrix[i][j] * this.translation[j] * scale;
       }
     } else {
       result[i] = [0.0, 0.0, 0.0, 1.0];
