@@ -3,9 +3,20 @@
 // License: BSD
 var trimesh = require('trimesh');
 var MeshLife = require('./meshlife.js').MeshLife;
-var meshdata = require('meshdata');
 var loop_subdivide = trimesh.loop_subdivision;
 var ArcballCamera = require('./arcball.js').ArcballCamera;
+var meshSet = require("./shapes.js").meshSet;
+
+function hex2rgb(hex) {
+  return [ (hex>>16)/255.0, ((hex>>8)&0xff)/255.0, (hex&0xff)/255.0 ]
+}
+
+var color_scheme = {
+  bg_color:     hex2rgb(0x64aad0),
+  light_color:  hex2rgb(0x3914af),
+  dark_color:   hex2rgb(0x41db00),
+  cell_color:   hex2rgb(0xff8b00)
+};
 
 
 //Context and mesh shader variables
@@ -20,12 +31,11 @@ var buttons = {
   zoom: false,
   pan: false
 };
-var meshSet = {
-  "Bunny": meshdata.bunny,
-  "Teapot": meshdata.teapot,
-  "Cube": trimesh.cube_mesh(10, [20,20,20]),
-  "Grid": trimesh.grid_mesh(10, 10)
-};
+
+
+function printVec3(vec) {
+  return "vec3(" + vec[0] + "," + vec[1] + "," + vec[2] + ")";
+}
 
 //Flattens an array
 function flatten(arr) {
@@ -147,9 +157,13 @@ function rebuild() {
         "varying float intensity;",
         "varying vec3  f_normal;",
         
+        "#define LIGHT_COLOR " + printVec3(color_scheme.light_color),
+        "#define DARK_COLOR  " + printVec3(color_scheme.dark_color),
+        "#define CELL_COLOR  " + printVec3(color_scheme.cell_color),
+        
         "void main() {",
           "float light = 0.3 * dot(normalize(f_normal), vec3(0, 1, 0)) + 0.5;",
-          "gl_FragColor = vec4(vec3(light,light,light) + 0.5 * vec3(intensity*intensity, intensity-0.4, 0), 1);",
+          "gl_FragColor = vec4(mix(mix(LIGHT_COLOR, DARK_COLOR, light), CELL_COLOR, intensity), 1);",
         "}"
       ].join("\n"),
       data: {
@@ -207,7 +221,7 @@ function init() {
   }
 
   //Set up basic parameters
-  context.setupClear( { red: 0, green: 1, blue: 1 } );
+  context.setupClear( { red: color_scheme.bg_color[0], green: color_scheme.bg_color[1], blue: color_scheme.bg_color[2] } );
 
   // attach the context's DOM element
   var container = document.getElementById("container");
@@ -274,6 +288,7 @@ function render() {
   //Initialize context
   context.cache.clear();
   context.enableDepthTest(true);
+  context.enableCulling(false);
   context.clear();
   
   //Update game of life

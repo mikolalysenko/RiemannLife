@@ -1,3 +1,5 @@
+"use strict";
+
 var trimesh = require('trimesh');
 var EPSILON = 1e-6;
 
@@ -112,7 +114,11 @@ function weight(a, b, c, da, db, dc, r) {
   }
  
   //Finally, return scaled weight
-  return w / area(a, b, c);
+  var scale = area(a,b,c);
+  if(Math.abs(scale) < EPSILON) {
+    return 0.0;
+  }
+  return w / scale;
 }
 
 //Computes the stiffness matrix for the system
